@@ -1,0 +1,656 @@
+import React, { useState, useEffect } from 'react';
+import { 
+  MapPin, Clock, Camera, Calculator, BookOpen, 
+  CheckCircle, Upload, DollarSign, Calendar, 
+  ChevronRight, Lightbulb, Users, ArrowRight,
+  TrendingUp, Leaf, Palette, Box, Navigation,
+  Cloud, RefreshCw, Link as LinkIcon, ExternalLink
+} from 'lucide-react';
+
+// Firebase Imports
+import { initializeApp } from 'firebase/app';
+import { 
+  getFirestore, collection, addDoc, onSnapshot, 
+  serverTimestamp, query, doc, setDoc, getDoc 
+} from 'firebase/firestore';
+import { 
+  getAuth, signInAnonymously, onAuthStateChanged, 
+  signInWithCustomToken 
+} from 'firebase/auth';
+
+// Firebase Initialization
+const firebaseConfig = JSON.parse(__firebase_config);
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+// 主應用程式組件
+const App = () => {
+  const [activeTab, setActiveTab] = useState('home');
+  const [tasksCompleted, setTasksCompleted] = useState(0);
+  const [totalTasks] = useState(4);
+  const [user, setUser] = useState(null);
+
+  // Auth Effect
+  useEffect(() => {
+    const initAuth = async () => {
+      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+        await signInWithCustomToken(auth, __initial_auth_token);
+      } else {
+        await signInAnonymously(auth);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
+
+  // 頁面切換函數
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'home': return <HomeTab onChangeTab={setActiveTab} />;
+      case 'itinerary': return <ItineraryTab />;
+      case 'tasks': return <LearningTasksTab onProgressUpdate={setTasksCompleted} />;
+      case 'budget': return <BudgetTab />;
+      case 'gallery': return <GalleryTab user={user} />;
+      case 'reflection': return <ReflectionTab />;
+      default: return <HomeTab onChangeTab={setActiveTab} />;
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-yellow-50 font-sans text-slate-800">
+      {/* 頂部導航欄 */}
+      <nav className="bg-white shadow-lg sticky top-0 z-50 border-b-4 border-teal-500">
+        <div className="max-w-4xl mx-auto px-4">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center space-x-2 cursor-pointer" onClick={() => setActiveTab('home')}>
+              <div className="bg-teal-500 p-2 rounded-lg text-white">
+                <MapPin size={24} />
+              </div>
+              <span className="font-bold text-xl tracking-wide text-teal-700 hidden sm:block">台北探索通</span>
+            </div>
+            
+            <div className="flex space-x-1 sm:space-x-4 overflow-x-auto pb-1 sm:pb-0 no-scrollbar">
+              <NavButton icon={<Clock size={20} />} label="行程" active={activeTab === 'itinerary'} onClick={() => setActiveTab('itinerary')} />
+              <NavButton icon={<BookOpen size={20} />} label="任務" active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} notification={tasksCompleted > 0} />
+              <NavButton icon={<Calculator size={20} />} label="記帳" active={activeTab === 'budget'} onClick={() => setActiveTab('budget')} />
+              <NavButton icon={<Camera size={20} />} label="相冊" active={activeTab === 'gallery'} onClick={() => setActiveTab('gallery')} />
+              <NavButton icon={<Lightbulb size={20} />} label="反思" active={activeTab === 'reflection'} onClick={() => setActiveTab('reflection')} />
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      {/* 主要內容區 */}
+      <main className="max-w-4xl mx-auto p-4 sm:p-6 mb-20">
+        {renderContent()}
+      </main>
+
+      {/* 底部進度條 (僅在學習模式顯示) */}
+      {activeTab === 'tasks' && (
+        <div className="fixed bottom-0 left-0 w-full bg-white border-t border-gray-200 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)]">
+          <div className="max-w-4xl mx-auto flex items-center justify-between">
+            <span className="font-bold text-lg text-teal-700">任務進度</span>
+            <div className="flex-1 mx-4 bg-gray-200 rounded-full h-4">
+              <div 
+                className="bg-orange-500 h-4 rounded-full transition-all duration-500 ease-out"
+                style={{ width: `${(tasksCompleted / totalTasks) * 100}%` }}
+              ></div>
+            </div>
+            <span className="font-bold text-lg">{tasksCompleted}/{totalTasks}</span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// 導航按鈕組件
+const NavButton = ({ icon, label, active, onClick, notification }) => (
+  <button 
+    onClick={onClick}
+    className={`flex flex-col items-center justify-center min-w-[60px] p-2 rounded-xl transition-all duration-200 ${
+      active 
+        ? 'bg-teal-100 text-teal-700 scale-105 shadow-sm font-bold' 
+        : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+    }`}
+  >
+    <div className="relative">
+      {icon}
+      {notification && <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full"></span>}
+    </div>
+    <span className="text-xs mt-1">{label}</span>
+  </button>
+);
+
+// --- 頁面組件 ---
+
+// 1. 首頁
+const HomeTab = ({ onChangeTab }) => (
+  <div className="space-y-8 animate-fadeIn">
+    <header className="text-center py-8 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-3xl text-white shadow-xl relative overflow-hidden">
+      <div className="absolute top-0 left-0 w-full h-full opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white via-transparent to-transparent"></div>
+      <h1 className="text-4xl sm:text-5xl font-extrabold mb-4 tracking-tight drop-shadow-md">穿越時空 漫遊文創</h1>
+      <p className="text-xl sm:text-2xl font-light opacity-90">台北城市文化與產業探索之旅</p>
+      <div className="mt-6 inline-flex items-center bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full">
+        <Calendar size={20} className="mr-2" />
+        <span className="text-lg font-medium">115年1月30日 (週五)</span>
+      </div>
+      <div className="mt-8">
+        <button 
+          onClick={() => onChangeTab('itinerary')}
+          className="bg-white text-teal-700 px-8 py-3 rounded-full font-bold text-xl hover:bg-yellow-300 hover:scale-105 transition-all shadow-lg flex items-center mx-auto"
+        >
+          開始探索 <ArrowRight className="ml-2" />
+        </button>
+      </div>
+    </header>
+
+    <section>
+      <h2 className="text-3xl font-bold text-slate-800 mb-6 flex items-center">
+        <span className="w-2 h-8 bg-orange-500 rounded-full mr-3"></span>
+        探索目標
+      </h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <GoalCard 
+          icon={<Leaf size={32} />} 
+          title="建築美學" 
+          desc="探索日式空間與自然環境的共生，理解「自然與居住空間結合」的概念。" 
+          color="bg-green-100 text-green-700"
+        />
+        <GoalCard 
+          icon={<Box size={32} />} 
+          title="歷史活化" 
+          desc="反思古蹟修復細節與現代場域再造，思考文化資產保存的意義。" 
+          color="bg-amber-100 text-amber-700"
+        />
+        <GoalCard 
+          icon={<Palette size={32} />} 
+          title="視覺敘事" 
+          desc="剖析動漫分鏡構圖與色彩的情緒引導，觀察創作者的視覺語言。" 
+          color="bg-purple-100 text-purple-700"
+        />
+        <GoalCard 
+          icon={<TrendingUp size={32} />} 
+          title="IP 經濟" 
+          desc="觀察平面原作轉化為沈浸式展覽與周邊的商業模式，了解 IP 產業鏈。" 
+          color="bg-blue-100 text-blue-700"
+        />
+      </div>
+    </section>
+
+    <div className="bg-white p-6 rounded-2xl shadow-md border-l-8 border-orange-400">
+      <h3 className="text-2xl font-bold mb-4 flex items-center">
+        <Users className="mr-3 text-orange-500" />
+        小組成員
+      </h3>
+      <div className="flex flex-wrap gap-3">
+        {['廖宥澄 (組長)', '林恩宇 (紀錄)', '張智勛', '黃廖宥丞 (會計)', '張宸銘 (安全官)', '許祐睿 (攝影)'].map((name, i) => (
+          <span key={i} className="bg-orange-50 px-4 py-2 rounded-lg text-lg text-slate-700 font-medium border border-orange-100">
+            {name}
+          </span>
+        ))}
+      </div>
+    </div>
+  </div>
+);
+
+const GoalCard = ({ icon, title, desc, color }) => (
+  <div className={`p-6 rounded-2xl ${color} shadow-sm hover:shadow-md transition-all cursor-default`}>
+    <div className="flex items-center mb-3">
+      <div className="p-3 bg-white rounded-xl shadow-sm mr-4">
+        {icon}
+      </div>
+      <h3 className="text-2xl font-bold">{title}</h3>
+    </div>
+    <p className="text-lg leading-relaxed opacity-90">{desc}</p>
+  </div>
+);
+
+// 2. 行程表
+const ItineraryTab = () => {
+  // mapTerm: 用於 Google Maps 搜尋的精確關鍵字
+  const schedule = [
+    { time: '09:00', end: '10:00', title: '移動：前往西本願寺', loc: '科教館 → 士林站 → 中山站 → 西門站', type: 'transport', mapTerm: '西本願寺廣場' },
+    { time: '10:00', end: '11:20', title: '西本願寺參觀', loc: '西本願寺', type: 'activity', highlight: true, mapTerm: '西本願寺廣場' },
+    { time: '11:20', end: '11:50', title: '移動：前往松菸', loc: '西本願寺 → 西門站 → 國父紀念館站', type: 'transport', mapTerm: '松山文創園區' },
+    { time: '11:50', end: '13:30', title: '午餐 & 展覽參觀', loc: '松菸文創園區', type: 'food', highlight: true, mapTerm: '松山文創園區' },
+    { time: '13:30', end: '14:30', title: '移動：返回科教館', loc: '松菸 → 國父紀念館站 → 台北車站 → 士林站', type: 'transport', mapTerm: '國立臺灣科學教育館' },
+    { time: '15:00', title: '集合解散', loc: '科教館', type: 'end', mapTerm: '國立臺灣科學教育館' },
+  ];
+
+  return (
+    <div className="space-y-6 animate-slideUp">
+      <h2 className="text-3xl font-bold text-slate-800 mb-6 border-b-2 border-teal-200 pb-2">今日行程</h2>
+      <div className="relative border-l-4 border-teal-200 ml-4 space-y-10 py-2">
+        {schedule.map((item, index) => (
+          <div key={index} className="relative pl-8 sm:pl-12 group">
+            <div className={`absolute -left-[14px] top-0 w-6 h-6 rounded-full border-4 border-white shadow-sm ${
+              item.type === 'activity' || item.type === 'food' ? 'bg-orange-500 w-8 h-8 -left-[18px]' : 'bg-teal-400'
+            }`}></div>
+            
+            <div className={`bg-white p-5 rounded-2xl shadow-sm hover:shadow-lg transition-all border border-slate-100 ${item.highlight ? 'ring-2 ring-orange-200 bg-orange-50' : ''}`}>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-2">
+                <span className="inline-block px-3 py-1 rounded-full bg-slate-100 text-slate-600 font-mono font-bold text-lg mb-2 sm:mb-0">
+                  {item.time} {item.end && `- ${item.end}`}
+                </span>
+                {item.type === 'activity' && <span className="text-orange-500 font-bold flex items-center"><Camera size={16} className="mr-1"/> 重點考察</span>}
+              </div>
+              <h3 className="text-2xl font-bold text-slate-800 mb-2">{item.title}</h3>
+              <div className="flex items-center flex-wrap text-slate-600 text-lg">
+                <div className="flex items-start mr-4">
+                  <MapPin size={20} className="mr-2 mt-1 flex-shrink-0 text-teal-600" />
+                  <span>{item.loc}</span>
+                </div>
+                
+                {/* 導航按鈕 */}
+                <a 
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(item.mapTerm || item.loc)}`} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center px-3 py-1 bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 transition-colors font-medium text-sm mt-2 sm:mt-0"
+                  title={`導航至 ${item.mapTerm || item.loc}`}
+                >
+                  <Navigation size={14} className="mr-1" />
+                  導航
+                </a>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// 3. 學習任務 (核心互動區)
+const LearningTasksTab = ({ onProgressUpdate }) => {
+  const [answers, setAnswers] = useState({ t1: '', t2: '', t3: '', t4: '' });
+  
+  const handleInput = (id, value) => {
+    const newAnswers = { ...answers, [id]: value };
+    setAnswers(newAnswers);
+    const completed = Object.values(newAnswers).filter(v => v.length > 10).length;
+    onProgressUpdate(completed);
+  };
+
+  return (
+    <div className="space-y-8 animate-fadeIn pb-20">
+      <div className="bg-blue-600 text-white p-6 rounded-2xl shadow-lg">
+        <h2 className="text-3xl font-bold mb-2">自主學習任務單</h2>
+        <p className="text-blue-100 text-lg">請在參觀過程中觀察並記錄你的發現。每個欄位至少輸入 10 個字。</p>
+      </div>
+
+      {/* 任務一 */}
+      <TaskCard 
+        id="t1"
+        title="任務一：建築結構與自然"
+        location="西本願寺"
+        question="觀察建築中的「緣側」(外廊)空間，這種介於室內與室外的模糊地帶，如何改變你對空間的感受？為何傳統日式建築重視這種連結？"
+        value={answers.t1}
+        onChange={(v) => handleInput('t1', v)}
+        icon={<Leaf className="text-green-500" />}
+        color="border-green-500"
+      />
+
+      {/* 任務二 */}
+      <TaskCard 
+        id="t2"
+        title="任務二：歷史變遷與修復"
+        location="西本願寺、輪番所"
+        question="觀察新舊建材交界處（如舊磚牆與新支架），現場是採用「修舊如舊」還是「修舊如新」？這帶給你什麼感受？"
+        value={answers.t2}
+        onChange={(v) => handleInput('t2', v)}
+        icon={<Clock className="text-amber-500" />}
+        color="border-amber-500"
+      />
+
+      {/* 任務三 */}
+      <TaskCard 
+        id="t3"
+        title="任務三：分鏡與色彩敘事"
+        location="松菸展場"
+        question="創作者如何利用冷暖色調或光影對比來潛意識地操控觀眾的情緒（如戰鬥 vs 回憶）？嘗試分析一個關鍵場景。"
+        value={answers.t3}
+        onChange={(v) => handleInput('t3', v)}
+        icon={<Palette className="text-purple-500" />}
+        color="border-purple-500"
+      />
+
+      {/* 任務四 */}
+      <TaskCard 
+        id="t4"
+        title="任務四：IP 產業觀察"
+        location="松菸展場"
+        question="分析現場的高人氣周邊商品，是哪些設計巧思或情感連結元素（如角色象徵），成功將其轉化為粉絲願意收藏的「IP商品」？"
+        value={answers.t4}
+        onChange={(v) => handleInput('t4', v)}
+        icon={<TrendingUp className="text-blue-500" />}
+        color="border-blue-500"
+      />
+    </div>
+  );
+};
+
+const TaskCard = ({ title, location, question, value, onChange, icon, color }) => (
+  <div className={`bg-white rounded-2xl shadow-md overflow-hidden border-t-4 ${color}`}>
+    <div className="p-6">
+      <div className="flex justify-between items-start mb-4">
+        <h3 className="text-2xl font-bold text-slate-800 flex items-center">
+          <span className="bg-slate-100 p-2 rounded-lg mr-3">{icon}</span>
+          {title}
+        </h3>
+        <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-sm font-bold">{location}</span>
+      </div>
+      <p className="text-lg text-slate-700 mb-4 font-medium leading-relaxed bg-slate-50 p-4 rounded-xl">
+        {question}
+      </p>
+      <textarea
+        className="w-full p-4 border-2 border-slate-200 rounded-xl focus:ring-4 focus:ring-teal-100 focus:border-teal-400 outline-none transition-all text-lg min-h-[150px]"
+        placeholder="點擊輸入你的觀察紀錄..."
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      ></textarea>
+      <div className="mt-2 flex justify-end">
+        {value.length > 10 ? (
+          <span className="text-green-600 flex items-center font-bold"><CheckCircle size={18} className="mr-1"/> 已紀錄</span>
+        ) : (
+          <span className="text-slate-400 text-sm">還需輸入 {Math.max(0, 10 - value.length)} 個字</span>
+        )}
+      </div>
+    </div>
+  </div>
+);
+
+// 4. 雲端記帳
+const BudgetTab = () => {
+  const [items, setItems] = useState([
+    { id: 1, name: '捷運：士林-中山', est: 20, actual: 0, note: '' },
+    { id: 2, name: '捷運：中山-西門', est: 20, actual: 0, note: '' },
+    { id: 3, name: '捷運：西門-國父紀念館', est: 25, actual: 0, note: '' },
+    { id: 4, name: '捷運：國父紀念館-北車', est: 20, actual: 0, note: '' },
+    { id: 5, name: '捷運：北車-士林', est: 25, actual: 0, note: '' },
+    { id: 6, name: '午餐費', est: 200, actual: 0, note: '' },
+  ]);
+
+  const updateActual = (id, val) => {
+    setItems(items.map(item => item.id === id ? { ...item, actual: Number(val) } : item));
+  };
+
+  const totalEst = items.reduce((acc, cur) => acc + cur.est, 0);
+  const totalAct = items.reduce((acc, cur) => acc + cur.actual, 0);
+  const balance = totalEst - totalAct;
+
+  return (
+    <div className="space-y-6 animate-fadeIn">
+      <h2 className="text-3xl font-bold text-slate-800 flex items-center">
+        <DollarSign className="mr-2 text-yellow-500" size={32} />
+        雲端旅遊記帳區
+      </h2>
+      
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <p className="text-slate-500 text-lg mb-1">預算總額</p>
+          <p className="text-3xl font-bold text-slate-800">${totalEst}</p>
+        </div>
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+          <p className="text-slate-500 text-lg mb-1">實際支出</p>
+          <p className={`text-3xl font-bold ${totalAct > totalEst ? 'text-red-500' : 'text-blue-600'}`}>${totalAct}</p>
+        </div>
+        <div className={`p-6 rounded-2xl shadow-sm border ${balance >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+          <p className="text-slate-600 text-lg mb-1">餘額結算</p>
+          <p className={`text-3xl font-bold ${balance >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            {balance >= 0 ? `+${balance}` : balance}
+          </p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[600px]">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-6 py-4 text-left text-slate-600 font-bold text-lg">項目</th>
+                <th className="px-6 py-4 text-right text-slate-600 font-bold text-lg">預估</th>
+                <th className="px-6 py-4 text-right text-slate-600 font-bold text-lg">實際</th>
+                <th className="px-6 py-4 text-center text-slate-600 font-bold text-lg">備註 (憑證)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {items.map(item => (
+                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-6 py-4 font-medium text-lg">{item.name}</td>
+                  <td className="px-6 py-4 text-right text-slate-500 text-lg">${item.est}</td>
+                  <td className="px-6 py-4 text-right">
+                    <input 
+                      type="number" 
+                      className="w-24 p-2 border-2 border-slate-200 rounded-lg text-right focus:border-teal-500 outline-none font-bold text-lg"
+                      value={item.actual || ''}
+                      onChange={(e) => updateActual(item.id, e.target.value)}
+                      placeholder="0"
+                    />
+                  </td>
+                  <td className="px-6 py-4 text-center text-slate-400 text-sm">
+                    {item.name.includes('捷運') ? '悠遊卡紀錄' : '需索取發票'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <p className="text-slate-500 text-center text-sm">* 無法取得單據者（如路邊攤），請於備註欄說明。</p>
+    </div>
+  );
+};
+
+// 5. 相冊上傳 (Google Drive Link Version)
+const GalleryTab = ({ user }) => {
+  const [driveLink, setDriveLink] = useState('');
+  const [inputLink, setInputLink] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // 監聽雲端設定 (獲取共用連結)
+  useEffect(() => {
+    if (!user) return;
+
+    // RULE 1 Fixed: 指向特定文件 (6 segments)
+    // artifacts / appId / public / data / gallery_config / settings
+    const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'gallery_config', 'settings');
+    
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setDriveLink(data.url || '');
+        if (!isEditing) setInputLink(data.url || '');
+      }
+      setLoading(false);
+    }, (error) => {
+      console.error("Sync error:", error);
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, [user, isEditing]);
+
+  // 儲存連結到 Firestore
+  const handleSaveLink = async () => {
+    if (!user) return;
+    
+    // 簡單驗證是否為網址
+    if (!inputLink.startsWith('http')) {
+      alert('請輸入完整的網址 (包含 https://)');
+      return;
+    }
+
+    try {
+      // RULE 1 Fixed: 指向特定文件 (6 segments)
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'gallery_config', 'settings'), {
+        url: inputLink,
+        updatedBy: user.uid.slice(0, 5),
+        updatedAt: serverTimestamp()
+      });
+      setIsEditing(false);
+    } catch (err) {
+      console.error("Save failed:", err);
+      alert('儲存失敗，請檢查網路');
+    }
+  };
+
+  return (
+    <div className="space-y-6 animate-fadeIn">
+      <div className="bg-white p-6 rounded-3xl shadow-lg border-t-8 border-blue-500">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-3xl font-bold text-slate-800 flex items-center">
+            <img src="https://upload.wikimedia.org/wikipedia/commons/1/12/Google_Drive_icon_%282020%29.svg" alt="Drive" className="w-8 h-8 mr-3" />
+            雲端活動相簿
+          </h2>
+          <span className="bg-blue-100 text-blue-800 text-xs font-bold px-3 py-1 rounded-full">Google Drive</span>
+        </div>
+
+        {loading ? (
+          <div className="p-8 text-center text-slate-400">載入設定中...</div>
+        ) : (
+          <>
+            {/* 狀態 1: 尚未設定連結 */}
+            {!driveLink && !isEditing && (
+              <div className="text-center py-8">
+                <Cloud size={64} className="mx-auto text-slate-300 mb-4" />
+                <h3 className="text-xl font-bold text-slate-700 mb-2">尚未連結雲端資料夾</h3>
+                <p className="text-slate-500 mb-6">請組長建立一個 Google Drive 共用資料夾，<br/>並將連結貼過來，大家就能一起上傳照片囉！</p>
+                <button 
+                  onClick={() => setIsEditing(true)}
+                  className="bg-blue-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-blue-700 transition-colors flex items-center mx-auto"
+                >
+                  <LinkIcon size={20} className="mr-2" />
+                  設定相簿連結
+                </button>
+              </div>
+            )}
+
+            {/* 狀態 2: 編輯連結模式 */}
+            {isEditing && (
+              <div className="bg-slate-50 p-6 rounded-2xl animate-fadeIn">
+                <label className="block text-slate-700 font-bold mb-2">Google Drive 資料夾連結</label>
+                <input 
+                  type="text" 
+                  value={inputLink}
+                  onChange={(e) => setInputLink(e.target.value)}
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  className="w-full p-4 border-2 border-slate-300 rounded-xl focus:border-blue-500 outline-none mb-4 text-slate-600"
+                />
+                <div className="flex space-x-3">
+                  <button 
+                    onClick={handleSaveLink}
+                    className="flex-1 bg-blue-600 text-white py-3 rounded-xl font-bold shadow-sm hover:bg-blue-700"
+                  >
+                    儲存並同步
+                  </button>
+                  <button 
+                    onClick={() => setIsEditing(false)}
+                    className="px-6 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-200"
+                  >
+                    取消
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* 狀態 3: 已設定連結 (顯示大按鈕) */}
+            {driveLink && !isEditing && (
+              <div className="text-center space-y-6">
+                <div className="p-4 bg-blue-50 text-blue-800 rounded-xl text-sm flex items-start text-left">
+                  <Lightbulb size={20} className="mr-2 flex-shrink-0 mt-0.5" />
+                  <p>點擊下方按鈕將開啟 Google Drive App 或網頁。請確認您已登入 Google 帳號以進行上傳。</p>
+                </div>
+
+                <a 
+                  href={driveLink} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="block w-full bg-gradient-to-r from-blue-500 to-teal-400 text-white p-6 rounded-2xl shadow-xl hover:shadow-2xl hover:scale-[1.02] transition-all group"
+                >
+                  <div className="flex flex-col items-center">
+                    <Cloud size={48} className="mb-2 group-hover:animate-bounce" />
+                    <span className="text-2xl font-bold flex items-center">
+                      開啟雲端相簿
+                      <ExternalLink size={24} className="ml-2 opacity-80" />
+                    </span>
+                    <span className="text-blue-100 mt-1">上傳照片 / 瀏覽回憶</span>
+                  </div>
+                </a>
+
+                <button 
+                  onClick={() => setIsEditing(true)}
+                  className="text-slate-400 text-sm hover:text-slate-600 underline"
+                >
+                  修改相簿連結
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* 補充說明區 */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
+          <div className="bg-green-100 p-3 rounded-full mb-3 text-green-600">
+            <Upload size={24} />
+          </div>
+          <h4 className="font-bold text-slate-700">無限上傳</h4>
+          <p className="text-xs text-slate-500 mt-1">支援高畫質原圖與長影片</p>
+        </div>
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col items-center text-center">
+          <div className="bg-orange-100 p-3 rounded-full mb-3 text-orange-600">
+            <Users size={24} />
+          </div>
+          <h4 className="font-bold text-slate-700">多人共享</h4>
+          <p className="text-xs text-slate-500 mt-1">連結同步，一人設定全員可用</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// 6. 反思回饋
+const ReflectionTab = () => (
+  <div className="space-y-6 animate-fadeIn">
+    <h2 className="text-3xl font-bold text-slate-800 mb-6">活動後反思回饋單</h2>
+    <div className="bg-white p-6 sm:p-8 rounded-2xl shadow-lg space-y-6">
+      
+      <div className="space-y-2">
+        <label className="block text-xl font-bold text-slate-700">1. 學習收穫</label>
+        <p className="text-slate-500 mb-2">印象最深刻的景點是？為什麼？學到了什麼？</p>
+        <textarea className="w-full p-4 border-2 border-slate-200 rounded-xl focus:border-teal-500 outline-none text-lg h-32"></textarea>
+      </div>
+
+      <div className="space-y-2">
+        <label className="block text-xl font-bold text-slate-700">2. 突發情況 & 困難</label>
+        <p className="text-slate-500 mb-2">是否有遇到計畫外的事？如何解決？</p>
+        <textarea className="w-full p-4 border-2 border-slate-200 rounded-xl focus:border-teal-500 outline-none text-lg h-32"></textarea>
+      </div>
+
+      <div className="space-y-2">
+        <label className="block text-xl font-bold text-slate-700">3. 團隊合作評分 (1-10)</label>
+        <div className="flex items-center space-x-4">
+          <input type="range" min="1" max="10" className="w-full h-3 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-teal-500" />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <label className="block text-xl font-bold text-slate-700">特別感謝</label>
+        <input type="text" placeholder="我想感謝組員..." className="w-full p-4 border-2 border-slate-200 rounded-xl focus:border-teal-500 outline-none text-lg" />
+      </div>
+
+      <button className="w-full bg-teal-600 text-white py-4 rounded-xl font-bold text-xl hover:bg-teal-700 transition-colors shadow-lg mt-4">
+        提交回饋單
+      </button>
+    </div>
+  </div>
+);
+
+export default App;
